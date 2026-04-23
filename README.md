@@ -1,167 +1,145 @@
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/QtRYN9D3)
 [![Open in Codespaces](https://classroom.github.com/assets/launch-codespace-2972f46106e565e64193e422d61a12cf1da4916b45550586e14ef0a7c637dd04.svg)](https://classroom.github.com/open-in-codespaces?assignment_repo_id=23669084)
 
-# Práctica 1
-
-## Implementación de un Mini Cloud Log Analyzer en ARM64
-
-**Modalidad:** Individual
-**Entorno de trabajo:** AWS Ubuntu ARM64 + GitHub Classroom
-**Lenguaje:** ARM64 Assembly (GNU Assembler) + Bash + GNU Make
-
+# Mini Cloud Log Analyzer – Variante C
+### Práctica 4.2 | ARM64 Assembly | GNU Assembler 
+#### Saenz Gallegos Javier 22210352
 ---
 
-## Introducción
+## Descripción
 
-Los sistemas modernos de cómputo en la nube generan continuamente registros (*logs*) que permiten monitorear el estado de servicios, detectar fallas y activar alertas ante eventos críticos.
+Programa en ensamblador ARM64 que detecta el primer evento crítico HTTP **503** en un archivo de logs suministrado por stdin.
 
-En esta práctica se desarrollará un módulo simplificado de análisis de logs, implementado en **ARM64 Assembly**, inspirado en tareas reales de monitoreo utilizadas en sistemas cloud, observabilidad y administración de infraestructura.
-
-El programa procesará códigos de estado HTTP suministrados mediante entrada estándar (stdin):
-
-```bash id="y1gcmc"
+```bash
 cat logs.txt | ./analyzer
 ```
 
 ---
 
-## Objetivo general
+## Salida esperada
 
-Diseñar e implementar, en lenguaje ensamblador ARM64, una solución para procesar registros de eventos y detectar condiciones definidas según la variante asignada.
-
----
-
-## Objetivos específicos
-
-El estudiante aplicará:
-
-* programación en ARM64 bajo Linux
-* manejo de registros
-* direccionamiento y acceso a memoria
-* instrucciones de comparación
-* estructuras iterativas en ensamblador
-* saltos condicionales
-* uso de syscalls Linux
-* compilación con GNU Make
-* control de versiones con GitHub Classroom
-
-Estos temas se alinean con contenidos clásicos de flujo de control, herramientas GNU, manejo de datos y convenciones de programación en ensamblador.   
+| Situación | Salida |
+|---|---|
+| Se encuentra un 503 | `ALERTA: Primer evento critico 503 en linea <N>` |
+| No hay ningún 503 | `INFO: No se encontro ningun evento critico 503.` |
 
 ---
 
-## Material proporcionado
+## Diseño y lógica
 
-Se entregará un repositorio preconfigurado que contiene:
+### Flujo general
 
-* plantilla base en ARM64
-* archivo `Makefile`
-* script Bash de ejecución
-* archivo de datos (`logs.txt`)
-* pruebas iniciales
-* secciones marcadas con `TODO`
-
-El estudiante deberá completar la lógica correspondiente.
-
----
-
-## Variantes de la práctica
-
-### Variante A
-
-Contabilizar:
-
-* respuestas exitosas (2xx)
-* errores del cliente (4xx)
-* errores del servidor (5xx)
-
----
-
-### Variante B
-
-Determinar el código de estado más frecuente.
-
----
-
-### Variante C
-
-Detectar el primer evento crítico (503).
-
----
-
-### Variante D
-
-Detectar tres errores consecutivos.
-
----
-
-### Variante E
-
-Calcular índice de salud:
-
-```text id="2u4vvx"
-Health Score = 100 - (errores × 10)
 ```
+stdin ──► leer byte a byte ──► acumular dígitos por línea
+                                      │
+                           ¿'\n' o EOF?
+                                      │
+                            ¿acumulado == 503?
+                               /          \
+                             SÍ            NO
+                              │             │
+                        imprimir       siguiente línea
+                        nro. línea     y reiniciar
+                        + exit(0)
+```
+
+### Registros utilizados (callee-saved)
+
+| Registro | Uso |
+|---|---|
+| `x19` | Número de línea actual (empieza en 1) |
+| `x20` | Acumulador numérico del código HTTP de la línea actual |
+| `x21` | Flag: 1 si ya se leyó al menos un dígito en la línea |
+
+### Algoritmo de análisis carácter a carácter
+
+1. Se lee un byte por syscall (`read`, nº 63).
+2. Si el byte es dígito ASCII (`'0'`–`'9'`), se convierte a valor entero y se acumula:
+   ```
+   acumulador = acumulador × 10 + dígito
+   ```
+3. Si el byte es `'\n'` y hubo dígitos:
+   - Se compara el acumulador con `503`.
+   - Si coincide → se imprime el número de línea y se termina.
+   - Si no → se incrementa el contador de línea y se reinician acumulador y flag.
+4. Al llegar a EOF se verifica si la última línea (sin `\n` final) es `503`.
+5. Si se agota el archivo sin encontrar `503` → se imprime mensaje informativo.
+
+### Conversión entero → ASCII
+
+Para imprimir el número de línea se usa división sucesiva entre 10, construyendo los dígitos de atrás hacia adelante en un búfer local (`num_buf`):
+
+```asm
+udiv  x3, x6, x7       // cociente
+msub  x2, x3, x7, x6   // resto (dígito actual)
+add   w2, w2, #'0'      // convertir a ASCII
+```
+
+### Syscalls empleadas
+
+| Nombre | Número | Uso |
+|---|---|---|
+| `read` | 63 | Leer 1 byte de stdin |
+| `write` | 64 | Escribir mensajes a stdout |
+| `exit` | 93 | Terminar el proceso |
 
 ---
 
 ## Compilación
 
-```bash id="bmubtb"
-make
+```bash
+make          # compila analyzer.s → analyzer
+make clean    # elimina objetos y ejecutable
 ```
-
----
 
 ## Ejecución
 
-```bash id="gcqlf2"
+```bash
 cat logs.txt | ./analyzer
+# o con el script incluido:
+./run.sh
+./run.sh mi_archivo.log
 ```
 
 ---
 
-## Entregables
+## Pruebas
 
-Cada estudiante deberá entregar en su repositorio:
+```bash
+make test
+```
 
-* archivo fuente ARM64 funcional
-* solución implementada
-* README explicando diseño y lógica utilizada
-* evidencia de ejecución
-* commits realizados en GitHub Classroom
+Salida esperada de `make test`:
 
----
+```
+=== Test 1: 503 en línea 3 ===
+ALERTA: Primer evento critico 503 en linea 3
 
-## Criterios de evaluación
+=== Test 2: sin ningún 503 ===
+INFO: No se encontro ningun evento critico 503.
 
-| Criterio                    | Ponderación |
-| --------------------------- | ----------- |
-| Compilación correcta        | 20%         |
-| Correctitud de la solución  | 35%         |
-| Uso adecuado de ARM64       | 25%         |
-| Documentación y comentarios | 10%         |
-| Evidencia de pruebas        | 10%         |
+=== Test 3: 503 en primera línea ===
+ALERTA: Primer evento critico 503 en linea 1
 
----
-
-## Restricciones
-
-No está permitido:
-
-* resolver la lógica en C
-* resolver la lógica en Python
-* modificar la variante asignada
-* omitir el uso de ARM64 Assembly
+=== Test 4: 503 en última línea (sin newline final) ===
+ALERTA: Primer evento critico 503 en linea 2
+```
 
 ---
 
-## Competencia a desarrollar
+## Restricciones cumplidas
 
-Comprender cómo un problema de procesamiento de datos es implementado a nivel máquina mediante instrucciones ARM64.
+- ✅ Lógica implementada íntegramente en ARM64 Assembly
+- ✅ Sin uso de C, Python ni llamadas a libc
+- ✅ Entrada por stdin (compatible con pipe `cat logs.txt | ./analyzer`)
+- ✅ Compilado con GNU Assembler (`as`) y enlazado con `ld`
+- ✅ Archivo `Makefile` incluido
 
----
 
-## Nota
-
-Aunque este problema puede resolverse fácilmente en lenguajes de alto nivel, el propósito de la práctica es implementar **cómo lo resolvería la arquitectura**, no únicamente obtener el resultado.
+Restricciones cumplidas
+✅ Lógica implementada íntegramente en ARM64 Assembly
+✅ Sin uso de C, Python ni llamadas a libc
+✅ Entrada por stdin (compatible con pipe cat logs.txt | ./analyzer)
+✅ Compilado con GNU Assembler (as) y enlazado con ld
+✅ Archivo Makefile incluido
 
